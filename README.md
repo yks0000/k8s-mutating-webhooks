@@ -2,7 +2,7 @@
 
 ## What are Admission Webhooks.
 
-Read [kubernetes official documentation](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/) for more details.
+Read [kubernetes official documentation](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/) for more details about admission webhooks.
 
 ## Environment
 
