@@ -1,0 +1,25 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: sample-mutating-webhook
+  annotations:
+    cert-manager.io/inject-ca-from: default/sidecar-injector-certs
+webhooks:
+  - name: sample-mutating-webhook.yogeshsharma.me
+    admissionReviewVersions:
+      - "v1beta1"
+    sideEffects: "None"
+    timeoutSeconds: 30
+    objectSelector:
+      matchLabels:
+        webhook-enabled: "true"
+    clientConfig:
+      service:
+        name: sample-mutating-webhook
+        namespace: default
+        path: "/mutate"
+    rules:
+      - operations: [ "CREATE", "UPDATE" ]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
