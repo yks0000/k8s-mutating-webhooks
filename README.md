@@ -1,5 +1,9 @@
 # K8S Mutating Webhook
 
+## What are Admission Webhooks.
+
+Read [kubernetes official documentation](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/) for more details.
+
 ## Environment
 
 1. [Minikube](https://minikube.sigs.k8s.io/docs/start/) for development k8s cluster.
