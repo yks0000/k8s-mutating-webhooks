@@ -4,11 +4,13 @@
 
 Read [kubernetes official documentation](https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/) for more details about admission webhooks.
 
+Steps marked `OPTIONAL` are for mainly for users using Windows based host machine for development. Other platform users can also follow these steps.
+
 ## Environment
 
 1. [Minikube](https://minikube.sigs.k8s.io/docs/start/) for development k8s cluster.
 2. [Cert Manager](https://cert-manager.io/) for managing CA Certs
-3. Docker (debian) for building go project. As k8s cluster is using *nix environment, we want to make sure to have similar development environment.
+3. `OPTIONAL`: Docker (debian) for building go project. As k8s cluster is using *nix environment, we want to make sure to have similar development environment.
 4. Source code is in `src` directory.
 5. All K8S config required for this tutorial is available in `configs` directory
 
@@ -18,22 +20,33 @@ Read [kubernetes official documentation](https://kubernetes.io/docs/reference/ac
 Note: My local machine is macOS based. As per docker [official documentation](https://docs.docker.com/desktop/mac/networking/), we can access service on host machine from container using `host.docker.internal`. Hence, we need to make sure, we add this domain to k8s cluster certificate.
 
 1. Please refer here for [installing minikube.](https://minikube.sigs.k8s.io/docs/start/)
-2. Start minikube server with api-server name `host.docker.internal`. This tell minikube to add additional hostname as SAN to cert.
+2. Start minikube server.
+   1. `OPTIONAL`: Start with api-server name `host.docker.internal`. This tell minikube to add additional hostname as SAN to cert. Windows users can also use host network to access host services from containers.
+   
+    ```bash
+    minikube start --apiserver-names=host.docker.internal
+    ```
+   
+    2. If `OPTIONAL` steps is not followed, then run
 
-```bash
-minikube start --apiserver-names=host.docker.internal
-```
+    ```bash
+    minikube start
+    ```
 
-3. Copy `~/.kube/config` to `kube` directory at the root of this project and update `server` as `https://host.docker.internal`. Do not change the port number.
+3. `OPTIONAL`: Copy `~/.kube/config` to `kube` directory at the root of this project and update `server` as `https://host.docker.internal`. Do not change the port number.
 
-4. For Webhook, we need to have a CA which can sign certificates for mTLS. We need to install cert-manager. Alternatively you can also use Cloudflare [CFSSL](https://github.com/cloudflare/cfssl) but require lots of manual configuration. cert-manager is highly recommended. 
+4. For Webhook, we need to have a CA which can sign certificates for TLS. We are using cert-manager for this. Alternatively you can also use Cloudflare [CFSSL](https://github.com/cloudflare/cfssl) but require lots of manual configuration. cert-manager is highly recommended. 
 
-```bash
-kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
-kubectl get pods -n cert-manager  # Make sure all containers are running.
-```
+    Run from container if `OPTIONAL` steps were followed, else you can directly run from host machine. *Access to k8s cluster is required.
 
-## Configuring Dev Environment based on Docker
+    ```bash
+    kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
+    kubectl get pods -n cert-manager  # Make sure all containers are running.
+    ```
+
+## Configuring Dockerfile
+
+We will use this for building our app as well as for hosting webhook code.
 
 1. Change directory to `src`
 2. Create a `Dockerfile`
@@ -48,7 +61,7 @@ RUN apk add --no-cache curl && \
     mv ./kubectl /usr/local/bin/kubectl
 ```
 
-3. Docker for development
+3. `OPTIONAL` Docker for development.
 
 ```bash
 docker build . -t webhook
@@ -58,6 +71,8 @@ _**Please make sure to replace image name with your preferred name.**_
 
 
 ## Start a Dev Container
+
+This section is `OPTIONAL`
 
 Start a dev container with Volume.
 
@@ -75,6 +90,8 @@ docker run -it --rm -p 80:80 -p 8443:8443 -v ${PWD}/../kube/:/root/.kube/ -v ${P
 Note: All `go build` needs to be executed inside dev containers 
 
 ## Dev environment verification
+
+Note: Windows users should run this from docker dev container.
 
 1. Let's define our main module and a web server inside `src` directory.
 
@@ -247,7 +264,37 @@ if err != nil {
 ```
 
 9. To perform a mutation on the object before the Kubernetes API sees the object, we can apply a patch to the operation
+
+```go
+var patches []patchOperation // Slice of patch ops
+
+labels := pod.ObjectMeta.Labels
+labels["example-webhook"] = "applied-from-mutating-webhook"
+
+patches = append(patches, patchOperation{
+    Op:    "add",
+    Path:  "/metadata/labels",
+    Value: labels,
+})
+
+// Once you have completed all patching, convert the patches to byte slice:
+patchBytes, err := json.Marshal(patches)
+if err != nil {
+_ = fmt.Errorf("could not marshal JSON patch: %v", err)
+}
+```
 10. Add patchBytes to the admission response
+
+```go
+// Add patchBytes to the admission response
+admissionReviewResponse := v1beta1.AdmissionReview{
+Response: &v1beta1.AdmissionResponse{
+UID: admissionReviewReq.Request.UID,
+Allowed: true,
+},
+}
+admissionReviewResponse.Response.Patch = patchBytes
+```
 11. Submit the response
 
 ```go
