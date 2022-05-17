@@ -1,5 +1,7 @@
 # K8S Mutating Webhook
 
+## Environment
+
 1. [Minikube](https://minikube.sigs.k8s.io/docs/start/) for development k8s cluster.
 2. [Cert Manager](https://cert-manager.io/) for managing CA Certs
 3. Docker (debian) for building go project. As k8s cluster is using *nix environment, we want to make sure to have similar development environment.
@@ -9,10 +11,10 @@
 
 ## Installing Minikube K8S Cluster
 
-Note: My local machine is macOS based, and as per docker [official documentation](https://docs.docker.com/desktop/mac/networking/), we can access service on host machine from container using `host.docker.internal`. Hence, we need to make sure, we add this domain to k8s cluster certificate.
+Note: My local machine is macOS based. As per docker [official documentation](https://docs.docker.com/desktop/mac/networking/), we can access service on host machine from container using `host.docker.internal`. Hence, we need to make sure, we add this domain to k8s cluster certificate.
 
 1. Please refer here for [installing minikube.](https://minikube.sigs.k8s.io/docs/start/)
-2. Start minikube server with `host.docker.internal` SAN added to cert.
+2. Start minikube server with api-server name `host.docker.internal`. This tell minikube to add additional hostname as SAN to cert.
 
 ```bash
 minikube start --apiserver-names=host.docker.internal
@@ -20,7 +22,7 @@ minikube start --apiserver-names=host.docker.internal
 
 3. Copy `~/.kube/config` to `kube` directory at the root of this project and update `server` as `https://host.docker.internal`. Do not change the port number.
 
-4. We need to install cert-manager.
+4. For Webhook, we need to have a CA which can sign certificates for mTLS. We need to install cert-manager. Alternatively you can also use Cloudflare [CFSSL](https://github.com/cloudflare/cfssl) but require lots of manual configuration. cert-manager is highly recommended. 
 
 ```bash
 kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.8.0/cert-manager.yaml
@@ -53,13 +55,18 @@ _**Please make sure to replace image name with your preferred name.**_
 
 ## Start a Dev Container
 
-Start a dev container with Volume Mounts.
+Start a dev container with Volume.
 
 From `src` directory, run:
 
 ```bash
 docker run -it --rm -p 80:80 -p 8443:8443 -v ${PWD}/../kube/:/root/.kube/ -v ${PWD}:/app -v /Users/`whoami`/.minikube:/Users/`whoami`/.minikube webhook sh
 ```
+
+`${PWD}/../kube/:/root/.kube/`: This contains updated kubeconfig file with cluster domain host.docker.internal  
+`${PWD}:/app`: Mount current `src` directory to container. Used for building app.  
+`/Users/`whoami`/.minikube:/Users/`whoami`/.minikube`: Contains all certificate which are required to connect to k8s cluster from dev container.  
+
 
 Note: All `go build` needs to be executed inside dev containers 
 
@@ -119,11 +126,11 @@ $ kubectl get nodes
 
 Add as below
 
-```txt
+```go
 // imports added:
 
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
+"k8s.io/apimachinery/pkg/runtime"
+"k8s.io/apimachinery/pkg/runtime/serializer"
 
 // code:
 
@@ -134,8 +141,10 @@ var (
 
 2. Now to access K8S, we need to have config. We will use k8s config [GetConfigOrDie](https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/client/config#GetConfigOrDie) function.
 
-```txt
-k8sConfig *rest.Config // As variable
+```go
+// As global variable
+
+k8sConfig *rest.Config 
 
 Inside main:
 
@@ -148,7 +157,7 @@ clientSet, err := kubernetes.NewForConfig(k8sConfig)
 
 For this to work, we also need to have a k8s client. Let's define that first in `main.go`
 
-```txt
+```go
 if err != nil {
 		panic(err.Error())
 	}
@@ -165,8 +174,8 @@ Total pod running in cluster: 12
 
 5. We will also provide a way to override server port, tls location.
 
-```txt
-/ ServerParameters : we need to enable a TLS endpoint
+```go
+// ServerParameters : we need to enable a TLS endpoint
 // Let's take some parameters where we can set the path to the TLS certificate and port number to run on.
 type ServerParameters struct {
 	port           int    // webhook server port
@@ -189,19 +198,19 @@ flag.Parse()
 
 Change from
 
-```bash
+```go
 log.Fatal(http.ListenAndServe(":80", nil))
 ```
 
 to
 
-```bash
+```go
 log.Fatal(http.ListenAndServeTLS(":" + strconv.Itoa(serverParameters.port), serverParameters.certFile, serverParameters.keyFile, nil))
 ```
 
 7. Kubernetes sends us an AdmissionReview and expects an AdmissionResponse back. Lets us write logic to get AdmissionReview Request inside `HandleMutate` function and pass it to universal decoder.
 
-```txt
+```go
 // Grabbing the http body received on webhook.
 body, err := ioutil.ReadAll(r.Body)
 if err != nil {
@@ -223,7 +232,7 @@ if _, _, err := universalDeserializer.Decode(body, nil, &admissionReviewReq); er
 
 8. We now need to capture Pod object from the admission request
 
-```txt
+```go
 var pod v1.Pod
 
 err = json.Unmarshal(admissionReviewReq.Request.Object.Raw, &pod)
@@ -237,7 +246,7 @@ if err != nil {
 10. Add patchBytes to the admission response
 11. Submit the response
 
-```txt
+```go
 bytes, err := json.Marshal(&admissionReviewResponse)
 if err != nil {
 fmt.Errorf("marshaling response: %v", err)
