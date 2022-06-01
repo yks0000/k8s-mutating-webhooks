@@ -55,7 +55,9 @@ FROM golang:1.17-alpine as dev-env
   
 WORKDIR /app  
 RUN apk add --no-cache curl && \  
- curl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl && \ chmod +x ./kubectl && \ mv ./kubectl /usr/local/bin/kubectl  
+ curl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl && \ 
+ chmod +x ./kubectl && \ 
+ mv ./kubectl /usr/local/bin/kubectl  
 ```  
 
 3. `OPTIONAL STEP` Docker for development.
@@ -102,22 +104,30 @@ Note: Windows users should run this from docker dev container.
    package main  
      
    import (  
-    "log" "net/http")  
+    "log" 
+    "net/http"
+   )  
      
    func main() {  
-    http.HandleFunc("/", HandleRoot) http.HandleFunc("/mutate", HandleMutate) log.Fatal(http.ListenAndServe(":80", nil))}  
+    http.HandleFunc("/", HandleRoot) 
+    http.HandleFunc("/mutate", HandleMutate) 
+    log.Fatal(http.ListenAndServe(":80", nil))
+   }  
      
    func HandleRoot(w http.ResponseWriter, r *http.Request){  
-    w.Write([]byte("HandleRoot!"))}  
+    w.Write([]byte("HandleRoot!"))
+   }  
      
    func HandleMutate(w http.ResponseWriter, r *http.Request){  
-    w.Write([]byte("HandleMutate!"))}  
+    w.Write([]byte("HandleMutate!"))
+   }  
    ```  
 
 Build:
 
    ```bash  
-   export CGO_ENABLED=0go build -o webhook./webhook  
+   export CGO_ENABLED=0 go build -o webhook
+   ./webhook  
    ```  
 
 Verify, if you can access `http://localhost/mutate` from Host machine browser.
@@ -183,7 +193,10 @@ Total pod running in cluster: 12
 // ServerParameters : we need to enable a TLS endpoint  
 // Let's take some parameters where we can set the path to the TLS certificate and port number to run on.  
 type ServerParameters struct {  
- port           int    // webhook server port certFile       string // path to the x509 certificate for https keyFile        string // path to the x509 private key matching `CertFile`}  
+ port           int    // webhook server port 
+ certFile       string // path to the x509 certificate for https keyFile        
+ string // path to the x509 private key matching `CertFile`
+ }  
   
 serverParameters ServerParameters  
   
@@ -215,16 +228,34 @@ log.Fatal(http.ListenAndServeTLS(":" + strconv.Itoa(serverParameters.port), serv
 7. Kubernetes sends us an AdmissionReview and expects an AdmissionResponse back. Lets us write logic to get AdmissionReview Request, pass it to universal decoder and and use it inside `HandleMutate`.
 
 ```go  
-func getAdmissionReviewRequest(w http.ResponseWriter, r *http.Request) admissionv1.AdmissionReview {  
-  
- // Grabbing the http body received on webhook. body, err := ioutil.ReadAll(r.Body) if err != nil { panic(err.Error()) }  
- // Required to pass to universal decoder. // v1beta1 also needs to be added to webhook.yaml var admissionReviewReq admissionv1.AdmissionReview  
- if _, _, err := universalDeserializer.Decode(body, nil, &admissionReviewReq); err != nil { w.WriteHeader(http.StatusBadRequest) _ = fmt.Errorf("could not deserialize request: %v", err) } else if admissionReviewReq.Request == nil { w.WriteHeader(http.StatusBadRequest) _ = errors.New("malformed admission review: request is nil") } return admissionReviewReq}  
-  
+func getAdmissionReviewRequest(w http.ResponseWriter, r *http.Request) admissionv1.AdmissionReview {
+
+	// Grabbing the http body received on webhook.
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	// Required to pass to universal decoder.
+	// v1beta1 also needs to be added to webhook.yaml
+	var admissionReviewReq admissionv1.AdmissionReview
+
+	if _, _, err := universalDeserializer.Decode(body, nil, &admissionReviewReq); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = fmt.Errorf("could not deserialize request: %v", err)
+	} else if admissionReviewReq.Request == nil {
+		w.WriteHeader(http.StatusBadRequest)
+		_ = errors.New("malformed admission review: request is nil")
+	}
+	return admissionReviewReq
+}
+
 // inside HandleMutate  
   
-// func getAdmissionReviewRequest, grab body from request, define AdmissionReview  
- // and use universalDeserializer to decode body to admissionReviewReqadmissionReviewReq := getAdmissionReviewRequest(w, r)  
+// func getAdmissionReviewRequest, grab body from request, define AdmissionReview
+// and use universalDeserializer to decode body to admissionReviewReq
+
+admissionReviewReq := getAdmissionReviewRequest(w, r)
 ```  
 
 8. We now need to capture Pod object from the admission request
@@ -235,7 +266,8 @@ var pod v1.Pod
 err = json.Unmarshal(admissionReviewReq.Request.Object.Raw, &pod)  
   
 if err != nil {  
- _ = fmt.Errorf("could not unmarshal pod on admission request: %v", err)}  
+ _ = fmt.Errorf("could not unmarshal pod on admission request: %v", err)
+ }  
 ```  
 
 9. To perform a mutation on the object before the Kubernetes API sees the object, we need to apply a patch to the operation
@@ -253,17 +285,27 @@ patches, _ := createPatch(pod, sideCarConfig)
 10. Add patchBytes to the admission response
 
 ```go  
-// Add patchBytes to the admission response  
-patchBytes, err := json.Marshal(patches)  
- if err != nil { _ = fmt.Errorf("could not marshal JSON patch: %v", err) }  
- // Add patchBytes to the admission response admissionReviewResponse := admissionv1.AdmissionReview{ Response: &admissionv1.AdmissionResponse{ UID: admissionReviewReq.Request.UID, Allowed: true, }, } admissionReviewResponse.Response.Patch = patchBytes  
+// Once you have completed all patching, convert the patches to byte slice:
+ patchBytes, err := json.Marshal(patches)
+ if err != nil {
+     _ = fmt.Errorf("could not marshal JSON patch: %v", err)
+ }
+
+ // Add patchBytes to the admission response
+ admissionReviewResponse := admissionv1.AdmissionReview{
+     Response: &admissionv1.AdmissionResponse{
+         UID: admissionReviewReq.Request.UID,
+         Allowed: true,
+     },
+ }
+ admissionReviewResponse.Response.Patch = patchBytes  
 ```  
 11. Submit the response
 
 ```go  
 bytes, err := json.Marshal(&admissionReviewResponse)  
 if err != nil {  
-fmt.Errorf("marshaling response: %v", err)  
+   fmt.Errorf("marshaling response: %v", err)  
 }  
   
 w.Write(bytes)  
@@ -278,31 +320,35 @@ We now need to publish changes to docker hub so that it can be downloaded in k8s
 Change `Dockerfile` as below:
 
 ```dockerfile  
-FROM golang:1.17-alpine as dev-env  
-  
-WORKDIR /app  
-RUN apk add --no-cache curl && \  
- curl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl && \ chmod +x ./kubectl && \ mv ./kubectl /usr/local/bin/kubectl  
-FROM dev-env as build-env  
-COPY go.mod /go.sum /app/  
-RUN go mod download  
-  
-COPY . /app/  
-  
-RUN CGO_ENABLED=0 go build -o /webhook  
-  
-FROM alpine:3.10 as runtime  
-  
-COPY --from=build-env /webhook /usr/local/bin/webhook  
-RUN chmod +x /usr/local/bin/webhook  
-  
-ENTRYPOINT ["webhook"]  
+FROM golang:1.17-alpine as dev-env
+
+WORKDIR /app
+RUN apk add --no-cache curl && \
+    curl -LO https://storage.googleapis.com/kubernetes-release/release/`curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt`/bin/linux/amd64/kubectl && \
+    chmod +x ./kubectl && \
+    mv ./kubectl /usr/local/bin/kubectl
+
+FROM dev-env as build-env
+COPY go.mod /go.sum /app/
+RUN go mod download
+
+COPY . /app/
+
+RUN CGO_ENABLED=0 go build -o /webhook
+
+FROM alpine:3.10 as runtime
+
+COPY --from=build-env /webhook /usr/local/bin/webhook
+RUN chmod +x /usr/local/bin/webhook
+
+ENTRYPOINT ["webhook"]
 ```  
 
 Build and Deploy
 
 ```bash  
-docker build . -t yks0000/sample-mutating-webhook:v1docker push yks0000/sample-mutating-webhook:v1
+docker build . -t yks0000/sample-mutating-webhook:v1
+docker push yks0000/sample-mutating-webhook:v1
 ```  
   
 Change name of image accordingly.  
@@ -312,13 +358,18 @@ Change name of image accordingly.
 1. Create Certificate for Webhook  
   
 ```bash  
-$ kubectl apply -f configs/certs.yamlissuer.cert-manager.io/selfsigned-issuer unchangedcertificate.cert-manager.io/sidecar-injector-certs unchanged
+$ kubectl apply -f configs/certs.yaml
+issuer.cert-manager.io/selfsigned-issuer unchanged
+certificate.cert-manager.io/sidecar-injector-certs unchanged
 ```  
   
 2. Deploy RBAC  
   
 ```bash  
-$ kubectl apply -f configs/rbac.yamlserviceaccount/sample-mutating-webhook createdclusterrole.rbac.authorization.k8s.io/sample-mutating-webhook createdclusterrolebinding.rbac.authorization.k8s.io/sample-mutating-webhook created  
+$ kubectl apply -f configs/rbac.yaml
+serviceaccount/sample-mutating-webhook created
+clusterrole.rbac.authorization.k8s.io/sample-mutating-webhook created
+clusterrolebinding.rbac.authorization.k8s.io/sample-mutating-webhook created  
 ```  
 
 3. Create Deployment
@@ -326,25 +377,29 @@ $ kubectl apply -f configs/rbac.yamlserviceaccount/sample-mutating-webhook creat
 Make sure you update image to `yks0000/sample-mutating-webhook:v1`
 
 ```bash  
-$ kubectl apply -f configs/deployment.yamldeployment.apps/sample-mutating-webhook created
+$ kubectl apply -f configs/deployment.yaml
+deployment.apps/sample-mutating-webhook created
 ```  
   
 Verify Pods:  
   
 ```bash  
-$ kubectl -n default get pods | grep sample-mutating-webhooksample-mutating-webhook-5d8666ffc7-4ljdh 1/1     Running   0          39s
+$ kubectl -n default get pods | grep sample-mutating-webhook
+sample-mutating-webhook-5d8666ffc7-4ljdh 1/1     Running   0          39s
 ```  
   
 Check Logs of pod, should emit log showing total number of pods  
   
 ```bash  
-$ kubectl logs sample-mutating-webhook-5d8666ffc7-4ljdhTotal pod running in cluster: 13
+$ kubectl logs sample-mutating-webhook-5d8666ffc7-4ljdh
+Total pod running in cluster: 13
 ```  
   
 4. Deploy Service  
   
 ```bash  
-$ kubectl apply -f configs/service.yamlservice/sample-mutating-webhook created  
+$ kubectl apply -f configs/service.yaml
+service/sample-mutating-webhook created  
 ```  
 
 5. Deploy Webhook
@@ -359,7 +414,8 @@ annotations:
 In `default/sidecar-injector-certs`, `default` is namespace and `sidecar-injector-certs` is name of certificate that we created using `certs.yaml`
 
 ```bash  
-$ kubectl apply -f configs/webhook.yamlmutatingwebhookconfiguration.admissionregistration.k8s.io/sample-mutating-webhook created
+$ kubectl apply -f configs/webhook.yaml
+mutatingwebhookconfiguration.admissionregistration.k8s.io/sample-mutating-webhook created
 ```  
   
 ## Test Mutation  
