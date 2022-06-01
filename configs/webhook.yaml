@@ -12,7 +12,7 @@ webhooks:
     timeoutSeconds: 30
     objectSelector:
       matchLabels:
-        webhook-enabled: "true"
+        inject-nginx-sidecar: "true"
     clientConfig:
       service:
         name: sample-mutating-webhook

@@ -23,7 +23,7 @@ spec:
         runAsUser: 1234
       containers:
         - name: server
-          image: yks0000/sample-mutating-webhook:v1
+          image: yks0000/sample-mutating-webhook:v2
           imagePullPolicy: Always
           ports:
             - containerPort: 8443

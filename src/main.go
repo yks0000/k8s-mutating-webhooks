@@ -5,11 +5,12 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"k8s.io/api/admission/v1beta1"
-	v1 "k8s.io/api/core/v1"
+	admissionv1 "k8s.io/api/admission/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/json"
+	_ "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"log"
@@ -25,13 +26,18 @@ type ServerParameters struct {
 	keyFile        string // path to the x509 private key matching `CertFile`
 }
 
-// To perform a simple mutation on the object before the Kubernetes API sees the object, we can apply a patch to the operation.
+// To perform a simple mutation on the object before the Kubernetes API sees the object, we can apply a patch to the operation. RFC6902
 type patchOperation struct {
 	Op    string      `json:"op"`  // Operation
 	Path  string      `json:"path"` // Path
 	Value interface{} `json:"value,omitempty"`
 }
 
+// Config To perform patching to Pod definition
+type Config struct {
+	Containers []corev1.Container `yaml:"containers"`
+	Volumes    []corev1.Volume    `yaml:"volumes"`
+}
 
 var (
 	universalDeserializer = serializer.NewCodecFactory(runtime.NewScheme()).UniversalDeserializer()
@@ -39,6 +45,7 @@ var (
 	k8sClientSet *kubernetes.Clientset
 	serverParameters ServerParameters
 )
+
 
 func main() {
 	flag.IntVar(&serverParameters.port, "port", 8443, "Webhook server port.")
@@ -64,7 +71,7 @@ func HandleRoot(w http.ResponseWriter, r *http.Request){
 	}
 }
 
-func getAdmissionReviewRequest(w http.ResponseWriter, r *http.Request) v1beta1.AdmissionReview {
+func getAdmissionReviewRequest(w http.ResponseWriter, r *http.Request) admissionv1.AdmissionReview {
 
 	// Grabbing the http body received on webhook.
 	body, err := ioutil.ReadAll(r.Body)
@@ -74,7 +81,7 @@ func getAdmissionReviewRequest(w http.ResponseWriter, r *http.Request) v1beta1.A
 
 	// Required to pass to universal decoder.
 	// v1beta1 also needs to be added to webhook.yaml
-	var admissionReviewReq v1beta1.AdmissionReview
+	var admissionReviewReq admissionv1.AdmissionReview
 
 	if _, _, err := universalDeserializer.Decode(body, nil, &admissionReviewReq); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
@@ -99,23 +106,17 @@ func HandleMutate(w http.ResponseWriter, r *http.Request){
 	)
 
 	// We now need to capture Pod object from the admission request
-	var pod v1.Pod
+	var pod corev1.Pod
 	err := json.Unmarshal(admissionReviewReq.Request.Object.Raw, &pod)
 	if err != nil {
 		_ = fmt.Errorf("could not unmarshal pod on admission request: %v", err)
 	}
 
 	// To perform a mutation on the object before the Kubernetes API sees the object, we can apply a patch to the operation
-	var patches []patchOperation // Slice of patch ops
-
-	labels := pod.ObjectMeta.Labels
-	labels["example-webhook"] = "applied-from-mutating-webhook"
-
-	patches = append(patches, patchOperation{
-		Op:    "add",
-		Path:  "/metadata/labels",
-		Value: labels,
-	})
+	// Add Labels
+	var sideCarConfig *Config
+	sideCarConfig = getNginxSideCarConfig()
+	patches, _ := createPatch(pod, sideCarConfig)
 
 	// Once you have completed all patching, convert the patches to byte slice:
 	patchBytes, err := json.Marshal(patches)
@@ -124,8 +125,8 @@ func HandleMutate(w http.ResponseWriter, r *http.Request){
 	}
 
 	// Add patchBytes to the admission response
-	admissionReviewResponse := v1beta1.AdmissionReview{
-		Response: &v1beta1.AdmissionResponse{
+	admissionReviewResponse := admissionv1.AdmissionReview{
+		Response: &admissionv1.AdmissionResponse{
 			UID: admissionReviewReq.Request.UID,
 			Allowed: true,
 		},

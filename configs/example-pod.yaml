@@ -3,8 +3,12 @@ kind: Pod
 metadata:
   name: example-pod
   labels:
-    webhook-enabled: "true"
+    inject-nginx-sidecar: "true"
 spec:
   containers:
-    - name: nginx
-      image: nginx
+    - name: rest-api
+      image: yks0000/echoserver:latest
+      imagePullPolicy: Always
+      ports:
+        - containerPort: 8080
+          protocol: TCP
