@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: example-deployment
+  namespace: default
+  labels:
+    app: echoserver-web-app
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: echoserver-web-app
+        inject-nginx-sidecar: "true"
+    spec:
+      containers:
+        - name: rest-api
+          image: yks0000/echoserver:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: nginx-conf
+        - name: nginx-tls
+          secret:
+            secretName: sidecar-injector-certs
+  selector:
+    matchLabels:
+      app: echoserver-web-app
