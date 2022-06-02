@@ -11,7 +11,7 @@ func createClientSet() *kubernetes.Clientset{
 
 	// Creating client Set
 	if err != nil {
-		panic(err.Error())
+		logger.Panic("Error creating client set: ", err.Error())
 	}
 	return clientSet
 }

@@ -13,8 +13,8 @@ import (
 	_ "k8s.io/client-go/applyconfigurations/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"log"
 	"net/http"
+	"net/http/httputil"
 	"strconv"
 )
 
@@ -59,9 +59,10 @@ func main() {
 	// test if client set is working
 	podsCount()
 
+	logger.Info("Starting webhook server...")
 	http.HandleFunc("/", HandleRoot)
 	http.HandleFunc("/mutate", HandleMutate)
-	log.Fatal(http.ListenAndServeTLS(":" + strconv.Itoa(serverParameters.port), serverParameters.certFile, serverParameters.keyFile, nil))
+	logger.Fatal(http.ListenAndServeTLS(":" + strconv.Itoa(serverParameters.port), serverParameters.certFile, serverParameters.keyFile, nil))
 }
 
 func HandleRoot(w http.ResponseWriter, r *http.Request){
@@ -72,20 +73,23 @@ func HandleRoot(w http.ResponseWriter, r *http.Request){
 }
 
 func getAdmissionReviewRequest(w http.ResponseWriter, r *http.Request) admissionv1.AdmissionReview {
+	requestDump, _ := httputil.DumpRequest(r, true)
+	fmt.Printf("Request:\n%s\n", requestDump)
 
 	// Grabbing the http body received on webhook.
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
-		panic(err.Error())
+		logger.Panic("Error reading webhook request: ", err.Error())
 	}
 
 	// Required to pass to universal decoder.
 	// v1beta1 also needs to be added to webhook.yaml
 	var admissionReviewReq admissionv1.AdmissionReview
 
+	logger.Info("deserializing admission review request")
 	if _, _, err := universalDeserializer.Decode(body, nil, &admissionReviewReq); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_ = fmt.Errorf("could not deserialize request: %v", err)
+		logger.Errorf("could not deserialize request: %v", err)
 	} else if admissionReviewReq.Request == nil {
 		w.WriteHeader(http.StatusBadRequest)
 		_ = errors.New("malformed admission review: request is nil")
@@ -97,31 +101,28 @@ func HandleMutate(w http.ResponseWriter, r *http.Request){
 	// func getAdmissionReviewRequest, grab body from request, define AdmissionReview
 	// and use universalDeserializer to decode body to admissionReviewReq
 	admissionReviewReq := getAdmissionReviewRequest(w, r)
+	uniqueId := string(admissionReviewReq.Request.UID)
 
 	// Debug statement to verify if universalDeserializer worked
-	fmt.Printf("Type: %v \t Event: %v \t Name: %v \n",
-		admissionReviewReq.Request.Kind,
-		admissionReviewReq.Request.Operation,
-		admissionReviewReq.Request.Name,
-	)
+	logger.Infof("Type: %v, Event: %v, Id: %v", admissionReviewReq.Request.Kind, admissionReviewReq.Request.Operation, admissionReviewReq.Request.UID)
 
 	// We now need to capture Pod object from the admission request
 	var pod corev1.Pod
 	err := json.Unmarshal(admissionReviewReq.Request.Object.Raw, &pod)
 	if err != nil {
-		_ = fmt.Errorf("could not unmarshal pod on admission request: %v", err)
+		logger.Errorf("could not unmarshal pod on admission request: %v", err)
 	}
 
 	// To perform a mutation on the object before the Kubernetes API sees the object, we can apply a patch to the operation
 	// Add Labels
 	var sideCarConfig *Config
-	sideCarConfig = getNginxSideCarConfig()
+	sideCarConfig = getNginxSideCarConfig(uniqueId)
 	patches, _ := createPatch(pod, sideCarConfig)
 
 	// Once you have completed all patching, convert the patches to byte slice:
 	patchBytes, err := json.Marshal(patches)
 	if err != nil {
-		_ = fmt.Errorf("could not marshal JSON patch: %v", err)
+		logger.Errorf("could not marshal JSON patch: %v", err)
 	}
 
 	// Add patchBytes to the admission response
@@ -136,7 +137,7 @@ func HandleMutate(w http.ResponseWriter, r *http.Request){
 	// Submit the response
 	bytes, err := json.Marshal(&admissionReviewResponse)
 	if err != nil {
-		_ = fmt.Errorf("marshaling response: %v", err)
+		logger.Errorf("marshaling response: %v", err)
 	}
 
 	_, err = w.Write(bytes)

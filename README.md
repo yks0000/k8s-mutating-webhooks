@@ -347,8 +347,8 @@ ENTRYPOINT ["webhook"]
 Build and Deploy
 
 ```bash  
-docker build . -t yks0000/sample-mutating-webhook:v1
-docker push yks0000/sample-mutating-webhook:v1
+docker build . -t yks0000/sample-mutating-webhook:v2
+docker push yks0000/sample-mutating-webhook:v2
 ```  
   
 Change name of image accordingly.  

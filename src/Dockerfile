@@ -1,4 +1,4 @@
-FROM golang:1.17-alpine as dev-env
+FROM golang:1.18-alpine as dev-env
 
 WORKDIR /app
 RUN apk add --no-cache curl && \
@@ -14,7 +14,7 @@ COPY . /app/
 
 RUN CGO_ENABLED=0 go build -o /webhook
 
-FROM alpine:3.10 as runtime
+FROM alpine:3.16 as runtime
 
 COPY --from=build-env /webhook /usr/local/bin/webhook
 RUN chmod +x /usr/local/bin/webhook

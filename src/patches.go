@@ -1,6 +1,8 @@
 package main
 
-import corev1 "k8s.io/api/core/v1"
+import (
+	corev1 "k8s.io/api/core/v1"
+)
 
 func addContainer(target, containers []corev1.Container, basePath string) (patch []patchOperation) {
 	first := len(target) == 0
@@ -15,6 +17,7 @@ func addContainer(target, containers []corev1.Container, basePath string) (patch
 		} else {
 			path = path + "/-"
 		}
+		logger.Debugf("container json patch Op: %s, Path: %s, Value: %+v", "add", path, value)
 		patch = append(patch, patchOperation{
 			Op:    "add",
 			Path:  path,
@@ -40,6 +43,7 @@ func addVolume(target, volumes []corev1.Volume, basePath string) (patch []patchO
 			path = path + "/-"
 		}
 
+		logger.Debugf("volume json patch Op: %s, Path: %s, Value: %+v", "add", path, value)
 		patch = append(patch, patchOperation{
 			Op:    "add",
 			Path:  path,
@@ -52,6 +56,7 @@ func addVolume(target, volumes []corev1.Volume, basePath string) (patch []patchO
 
 
 func createPatch(pod corev1.Pod, sidecarConfig *Config) ([]patchOperation, error) {
+	logger.Info("creating json patch of pod for sidecar config")
 	var patches []patchOperation
 	patches = append(patches, addContainer(pod.Spec.Containers, sidecarConfig.Containers, "/spec/containers")...)
 	patches = append(patches, addVolume(pod.Spec.Volumes, sidecarConfig.Volumes, "/spec/volumes")...)

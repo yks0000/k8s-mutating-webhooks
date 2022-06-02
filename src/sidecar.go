@@ -22,6 +22,7 @@ func generateNginxSideCarConfig(config NginxSideCarConfig, volumes []corev1.Volu
 	var containers []corev1.Container
 	var nginxContainerPort []corev1.ContainerPort
 
+	logger.Debug("generating nginx side car config...")
 	nginxContainer := corev1.Container{
 		Name: config.SetContainerNameOrDefault(),
 		Image: config.ImageName,
@@ -44,11 +45,12 @@ func generateNginxSideCarConfig(config NginxSideCarConfig, volumes []corev1.Volu
 	}
 }
 
-func getPodVolumes() []corev1.Volume {
+func getPodVolumes(uniqueId string) []corev1.Volume {
 	var volumes []corev1.Volume
 
+	logger.Debug("generating volume config for pod...")
 	volumes = append(volumes, corev1.Volume{
-		Name: "nginx-tls",
+		Name: "nginx-tls-" + uniqueId,
 		VolumeSource: corev1.VolumeSource{
 			Secret: &corev1.SecretVolumeSource{
 				SecretName: "sidecar-injector-certs",
@@ -58,7 +60,7 @@ func getPodVolumes() []corev1.Volume {
 	)
 
 	volumes = append(volumes, corev1.Volume{
-		Name: "nginx-conf",
+		Name: "nginx-conf-" + uniqueId,
 		VolumeSource: corev1.VolumeSource{
 			ConfigMap: &corev1.ConfigMapVolumeSource{
 				LocalObjectReference: corev1.LocalObjectReference{
@@ -72,16 +74,17 @@ func getPodVolumes() []corev1.Volume {
 	return volumes
 }
 
-func getNginxSideCarConfig() *Config {
+func getNginxSideCarConfig(uniqueId string) *Config {
 	var volumesMount []corev1.VolumeMount
 
+	logger.Debug("generating volume mount count for side car with unique Id ", uniqueId)
 	volumesMount = append(volumesMount, corev1.VolumeMount{
-		Name: "nginx-conf",
+		Name: "nginx-conf-" + uniqueId,
 		MountPath: "/etc/nginx/nginx.conf",
 		SubPath: "nginx.conf",
 	})
 	volumesMount = append(volumesMount, corev1.VolumeMount{
-		Name: "nginx-tls",
+		Name: "nginx-tls-" + uniqueId,
 		MountPath: "/etc/nginx/ssl",
 	})
 
@@ -91,5 +94,5 @@ func getNginxSideCarConfig() *Config {
 		Port: 80,
 		VolumeMounts: volumesMount,
 	},
-	getPodVolumes())
+	getPodVolumes(uniqueId))
 }
